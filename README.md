@@ -1,2 +1,2 @@
-# pytTorch
+# pyTorch
 pytorch Coding From Scratch
