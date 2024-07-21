@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 import os
-
+import torchvision
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 def load_checkpoint(path, model, optimizer):
     
     checkpoint = torch.load(path)
@@ -19,36 +20,59 @@ def save_checkpoint(path, model, optimizer):
     checkpoint = {'state_dict': model.state_dict(), 'optimizer':optimizer.state_dict()}
     torch.save(checkpoint, path)
 
-class CNN(nn.Module):
+# class CNN(nn.Module):
 
-    def __init__(self, in_channels=1, num_classes=10):
-        super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels=8, kernel_size = (3,3), stride=(1,1), padding=(1,1))
-        self.pool = nn.MaxPool2d(kernel_size = (2,2), stride = (2,2))
-        self.conv2 = nn.Conv2d(in_channels=8, out_channels=16, kernel_size=(3,3), stride= (1,1), padding=(1,1))
-        self.fc1 = nn.Linear(16*7*7, num_classes)
+#     def __init__(self, in_channels=1, num_classes=10):
+#         super().__init__()
+#         self.conv1 = nn.Conv2d(in_channels, out_channels=8, kernel_size = (3,3), stride=(1,1), padding=(1,1))
+#         self.pool = nn.MaxPool2d(kernel_size = (2,2), stride = (2,2))
+#         self.conv2 = nn.Conv2d(in_channels=8, out_channels=16, kernel_size=(3,3), stride= (1,1), padding=(1,1))
+#         self.fc1 = nn.Linear(16*7*7, num_classes)
 
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = self.pool(x)
-        x = F.relu(self.conv2(x))
-        x = self.pool(x)
-        x = x.reshape(x.shape[0], -1)
-        x = self.fc1(x)
+#     def forward(self, x):
+#         x = F.relu(self.conv1(x))
+#         x = self.pool(x)
+#         x = F.relu(self.conv2(x))
+#         x = self.pool(x)
+#         x = x.reshape(x.shape[0], -1)
+#         x = self.fc1(x)
 
-        return x
+#         return x
     
 # model = CNN(3, 10)
 
 # x = torch.rand((100, 3, 28, 28))
 # print(f'output shape is {model(x).shape}')
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+model = torchvision.models.vgg16(pretrained=True)
+
+class Identity(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x
+
+class classificationLayer(nn.Module):
+ 
+    def __init__(self):
+        super().__init__()
+        self.sq1 = nn.Sequential(
+            nn.Linear(512, 1024, bias = True),
+            nn.Linear(1024, 256, bias = True),
+            nn.Linear(256, 10,bias = True)
+        )
+    
+    def forward(self, x):
+        return self.sq1(x) 
+
+
+
 
 in_channels = 1
 num_classes = 10
 learning_rate = 3e-4
-batch_size = 64
+batch_size = 32
 num_epochs = 4
 script_dir = os.path.dirname(os.path.realpath(__file__))
 checkpoint_path = os.path.join(script_dir, 'checkpoints/CNN/')
@@ -56,15 +80,18 @@ checkpoint_name = 'checkpoint_epoch.pth.tar'
 load_model = False
 save_frequency = 2
 
+for param in model.parameters():
+    param.requires_grad = False
 
+model.avgpool = Identity()   
+model.classifier = classificationLayer()
+model.to(device)
 
-train_dataset = datasets.MNIST(root='/datasets', train = True, transform = transforms.ToTensor(), download = True)
+train_dataset = datasets.CIFAR10(root='/datasets', train = True, transform = transforms.ToTensor(), download = True)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-test_dataset = datasets.MNIST(root='/datasets', train = False, transform = transforms.ToTensor(), download = True)
+test_dataset = datasets.CIFAR10(root='/datasets', train = False, transform = transforms.ToTensor(), download = True)
 test_loader = DataLoader(test_dataset, shuffle=True, batch_size=batch_size)
-
-model = CNN(in_channels, num_classes).to(device)
 
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr =learning_rate)
@@ -77,6 +104,7 @@ if load_model:
 
 print(f'Starting training')
 for epoch in range(num_epochs):
+    print(f'Currently at epoch number {epoch}')
     for data, targets in train_loader:
         data = data.to(device)
         targets = targets.to(device)
@@ -86,8 +114,7 @@ for epoch in range(num_epochs):
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
-    if epoch % save_frequency == 0 and epoch !=0:
-        save_checkpoint(os.path.join(checkpoint_path, checkpoint_name), model, optimizer)
+
         
 @torch.no_grad()
 def check_accuracy(loader, model):
